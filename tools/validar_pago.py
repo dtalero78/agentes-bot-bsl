@@ -81,7 +81,7 @@ def run(imagen_url, numeroId=None, whatsapp_id=None, thread_id=None):
 
     try:
         valor_int = int(valor)
-        if valor_int >= 46000:
+        if valor_int >= 4600:
             # Marcar como pagado en Wix
             res = requests.post("https://www.bsl.com.co/_functions/marcarPagado", json={
                 "userId": numeroId,

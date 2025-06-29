@@ -60,5 +60,24 @@
         ]
       }
     }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "clasificar_documento",
+      "description": "Clasifica una imagen en comprobante_pago, examen_medico, documento_identidad u otro.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "imagen_url": {
+            "type": "string",
+            "description": "URL pública de la imagen a clasificar"
+          }
+        },
+        "required": [
+          "imagen_url"
+        ]
+      }
+    }
   }
 ]

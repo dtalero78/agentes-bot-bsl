@@ -11,88 +11,86 @@ load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 
-def ejecutar_agente(texto_usuario, thread_id=None, imagen_url=None):
-    # 1. Crear thread si no existe
+def clasificar_documento(imagen_url: str) -> str:
+    """
+    Stub de clasificación: puede reemplazar esto
+    con OCR o llamada a otro modelo si quieres.
+    """
+    # Ejemplo sencillo: siempre devuelve 'comprobante_pago'
+    return "comprobante_pago"
+
+
+def ejecutar_agente(texto_usuario: str = "", thread_id: str = None, imagen_url: str = None):
+    # 1) Crear thread si no existe
     if not thread_id:
         thread = openai.beta.threads.create()
         thread_id = thread.id
 
-    # 2. Agrega el mensaje del usuario
+    # 2) Armar contenido garantizando string o list de objetos
     if imagen_url:
-        content = [
-            {"type": "text", "text": texto_usuario},
-            {"type": "image_url", "image_url": {"url": imagen_url}}
-        ]
+        content = []
+        if texto_usuario:
+            content.append({"type": "text", "text": texto_usuario})
+        content.append({"type": "image_url", "image_url": {"url": imagen_url}})
     else:
-        content = texto_usuario
+        # nunca None
+        content = texto_usuario or ""
 
+    # 3) Enviar mensaje de usuario
     openai.beta.threads.messages.create(
         thread_id=thread_id,
         role="user",
         content=content
     )
 
-    # 3. Ejecuta el asistente
+    # 4) Ejecutar el asistente
     run = openai.beta.threads.runs.create_and_poll(
         thread_id=thread_id,
         assistant_id="asst_Atmi3qOvdpd6vvfHoZ15ufSc"
     )
 
-    if run.status == "completed":
-        messages = openai.beta.threads.messages.list(thread_id=thread_id)
-
-        print("🧵 HISTORIAL DE CONVERSACIÓN:")
-        for m in reversed(messages.data):  # Mostrar en orden cronológico
-            rol = m.role
-            contenido = m.content[0].text.value if m.content else "[sin contenido]"
-            print(f"{rol.upper()}: {contenido}")
-
-        respuesta = messages.data[0].content[0].text.value
-        return respuesta, thread_id
-
-    elif run.status == "requires_action":
+    # 5) Si hay que invocar herramientas, iterar hasta completar
+    while run.status == "requires_action":
+        tool_outputs = []
         for call in run.required_action.submit_tool_outputs.tool_calls:
-            tool_name = call.function.name
-            arguments = eval(call.function.arguments)
+            name = call.function.name
+            args = eval(call.function.arguments)
 
-            if tool_name == "generar_certificado":
-                resultado = generar_certificado.run(**arguments)
-            elif tool_name == "validar_pago":
-                resultado = validar_pago.run(**arguments)
-            elif tool_name == "consultar_cita":
-                resultado = consultar_cita.run(**arguments)
+            if name == "clasificar_documento":
+                resultado = clasificar_documento(args["imagen_url"])
+            elif name == "validar_pago":
+                resultado = validar_pago.run(**args)
+            elif name == "generar_certificado":
+                resultado = generar_certificado.run(**args)
+            elif name == "consultar_cita":
+                resultado = consultar_cita.run(**args)
             else:
-                resultado = "Esta función aún no está implementada."
+                resultado = "Función no implementada."
 
-            openai.beta.threads.runs.submit_tool_outputs(
-                thread_id=thread_id,
-                run_id=run.id,
-                tool_outputs=[{
-                    "tool_call_id": call.id,
-                    "output": resultado
-                }]
-            )
+            tool_outputs.append({
+                "tool_call_id": call.id,
+                "output": resultado
+            })
 
-        # Espera hasta que el run esté completo
+        openai.beta.threads.runs.submit_tool_outputs(
+            thread_id=thread_id,
+            run_id=run.id,
+            tool_outputs=tool_outputs
+        )
+
+        # Esperar el siguiente estado
         while True:
-            run_check = openai.beta.threads.runs.retrieve(
-                thread_id=thread_id,
-                run_id=run.id
-            )
-            if run_check.status in ["completed", "failed", "cancelled"]:
+            run = openai.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
+            if run.status in ["completed", "failed", "cancelled", "requires_action"]:
                 break
             time.sleep(1)
 
-        messages = openai.beta.threads.messages.list(thread_id=thread_id, order="desc", limit=1)
-
-        print("🧵 HISTORIAL DE CONVERSACIÓN:")
-        for m in reversed(messages.data):
-            rol = m.role
-            contenido = m.content[0].text.value if m.content else "[sin contenido]"
-            print(f"{rol.upper()}: {contenido}")
-
-        respuesta = messages.data[0].content[0].text.value
-        return respuesta, thread_id
-
+    # 6) Leer la última respuesta del asistente
+    messages = openai.beta.threads.messages.list(thread_id=thread_id)
+    if messages.data:
+        # El mensaje más reciente está en data[0]
+        last = messages.data[0].content[0].text.value if messages.data[0].content else ""
     else:
-        return "Ocurrió un error con el agente.", thread_id
+        last = ""
+
+    return last, thread_id
