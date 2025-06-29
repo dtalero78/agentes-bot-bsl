@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 import requests
 import os
+import time
 from main_agent import ejecutar_agente
 from tools.pdf_sender import generar_pdf, send_pdf, marcar_pagado
 import tools.validar_pago as validar_pago
@@ -13,6 +14,19 @@ WHAPI_TOKEN = os.getenv("WHAPI_TOKEN")
 BOT_NUMBER = "573008021701"
 
 imagenes_pendientes = {}
+
+def descargar_imagen_whatsapp(image_id, intentos=3, espera=2):
+    media_url = f"https://gate.whapi.cloud/media/{image_id}"
+    for intento in range(intentos):
+        media_resp = requests.get(media_url, headers={"Authorization": f"Bearer {WHAPI_TOKEN}"})
+        print(f"🔍 Intento {intento+1}: status {media_resp.status_code}, len {len(media_resp.content)}")
+        if media_resp.status_code == 200 and len(media_resp.content) > 1000:
+            print("✅ Imagen de WhatsApp descargada correctamente.")
+            return media_resp.content
+        print(f"⏳ Imagen muy pequeña o no disponible aún, esperando {espera} segundos antes de reintentar...")
+        time.sleep(espera)
+    print("❌ No se pudo obtener la imagen original de WhatsApp después de varios intentos.")
+    return None
 
 @webhook_bp.route("/webhook", methods=["POST"])
 def recibir_mensaje():
@@ -38,7 +52,7 @@ def recibir_mensaje():
 
     texto_limpio = texto.strip().lower()
 
-    # --- MARCAR STOP: admin escribe "...transfiriendo con asesor" ---
+    # --- MARCAR STOP ---
     if (
         from_me
         and sender_number == BOT_NUMBER
@@ -56,7 +70,7 @@ def recibir_mensaje():
         print(f"🚩 Usuario {numero_id} transferido con asesor, bot detenido.")
         return jsonify({"status": "bot detenido por transferencia"}), 200
 
-    # --- DESMARCAR STOP: admin escribe "...te dejo con el bot 🤖" ---
+    # --- DESMARCAR STOP ---
     if (
         from_me
         and sender_number == BOT_NUMBER
@@ -74,7 +88,7 @@ def recibir_mensaje():
         print(f"✅ Usuario {numero_id} reactivado, bot habilitado.")
         return jsonify({"status": "bot reactivado por admin"}), 200
 
-    # 🔴 Ignorar TODOS los demás mensajes enviados por el propio bot/admin
+    # Ignorar mensajes enviados por el bot/admin
     if from_me or sender_number == BOT_NUMBER:
         return jsonify({"status": "control procesado"}), 200
 
@@ -94,11 +108,17 @@ def recibir_mensaje():
     # 1) Usuario envía imagen
     if tipo == "image":
         image_id = mensaje["image"]["id"]
-        media_url = f"https://gate.whapi.cloud/media/{image_id}"
-        media_resp = requests.get(media_url, headers={"Authorization": f"Bearer {WHAPI_TOKEN}"})
-        img_data = media_resp.content
+        img_data = descargar_imagen_whatsapp(image_id)
+        if not img_data:
+            # Mensaje de error y detención
+            requests.post(WHAPI_URL, headers={
+                "Authorization": f"Bearer {WHAPI_TOKEN}",
+                "accept": "application/json",
+                "Content-Type": "application/json"
+            }, json={"to": numero_id, "body": "No pude procesar tu comprobante. Intenta reenviar la imagen en unos segundos."})
+            return jsonify({"status": "imgbb error"}), 200
 
-        # 👇 SUBIR A IMGBB
+        # SUBIR A IMGBB
         try:
             url_publica = upload_image_to_imgbb(img_data)
             print(f"🌐 Imagen subida a imgbb: {url_publica}")
@@ -140,28 +160,43 @@ def recibir_mensaje():
     if pending and pending.get("awaiting_doc"):
         if texto.isdigit():
             url_publica = pending["url_publica"]
-            # --- Enviar mensaje de espera ---
+
+            # Recuperar thread_id de Wix si existe
+            thread_id = None
+            try:
+                estado_resp = requests.get(f"https://www.bsl.com.co/_functions/obtenerConversacion?userId={numero_id}")
+                estado = estado_resp.json() if estado_resp.status_code == 200 else {}
+                thread_id = estado.get("threadId")
+                print("🧩 threadId recuperado del backend:", thread_id)
+            except Exception as e:
+                print("⚠️ No se pudo recuperar thread_id:", e)
+                thread_id = None
+
+            # Enviar mensaje de espera
             requests.post(WHAPI_URL, headers={
                 "Authorization": f"Bearer {WHAPI_TOKEN}",
                 "accept": "application/json",
                 "Content-Type": "application/json"
             }, json={"to": numero_id, "body": "...un momento por favor"})
-            
-            resultado = validar_pago.run(imagen_url=url_publica, numeroId=texto, whatsapp_id=numero_id)
-            
+
+            resultado = validar_pago.run(
+                imagen_url=url_publica,
+                numeroId=texto,
+                whatsapp_id=numero_id,
+                thread_id=thread_id
+            )
+
             requests.post(WHAPI_URL, headers={
                 "Authorization": f"Bearer {WHAPI_TOKEN}",
                 "accept": "application/json",
                 "Content-Type": "application/json"
             }, json={"to": numero_id, "body": resultado})
 
-            # Aquí SOLO agrega threadId si tienes la variable (puedes dejarlo comentado si aún no)
-            # threadId = ...  # <-- Consíguelo de tu agente si lo tienes, o de Wix
             requests.post("https://www.bsl.com.co/_functions/guardarConversacion", json={
                 "userId": numero_id,
                 "nombre": "sistema",
                 "mensajes": [{"from": "sistema", "mensaje": resultado}],
-                # "threadId": threadId  # Descomenta solo si tienes el valor
+                "threadId": thread_id
             })
 
             imagenes_pendientes.pop(numero_id, None)
@@ -186,6 +221,6 @@ def recibir_mensaje():
         "userId": numero_id,
         "nombre": "sistema",
         "mensajes": [{"from": "sistema", "mensaje": respuesta}],
-        "threadId": threadId  # Descomenta solo si lo tienes
+        "threadId": threadId
     })
     return jsonify({"status": "ok", "respuesta": respuesta}), 200
