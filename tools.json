@@ -1,0 +1,64 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "generar_certificado",
+      "description": "Genera el certificado médico en PDF para un número de documento.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "contenido": {
+            "type": "string",
+            "description": "Número de documento del paciente"
+          }
+        },
+        "required": [
+          "contenido"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "validar_pago",
+      "description": "Analiza un comprobante de pago en imagen y registra el pago si el valor es correcto.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "imagen_url": {
+            "type": "string",
+            "description": "URL pública de la imagen del comprobante"
+          },
+          "numeroId": {
+            "type": "string",
+            "description": "Número de documento del paciente que envió el comprobante"
+          }
+        },
+        "required": [
+          "imagen_url",
+          "numeroId"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "consultar_cita",
+      "description": "Consulta si una persona ya tiene una cita programada, usando su número de documento.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "numero_id": {
+            "type": "string",
+            "description": "Número de documento del paciente"
+          }
+        },
+        "required": [
+          "numero_id"
+        ]
+      }
+    }
+  }
+]

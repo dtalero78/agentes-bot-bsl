@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Probador de Agente BSL</title>
+</head>
+<body style="font-family: sans-serif; padding: 2em;">
+  <h2>Enviar mensaje al agente</h2>
+  <textarea id="mensaje" rows="4" cols="60" placeholder="Escribe tu mensaje aquí..."></textarea><br><br>
+  <button onclick="enviar()">Enviar</button>
+
+  <h3>Respuesta:</h3>
+  <pre id="respuesta" style="background:#f0f0f0;padding:1em;"></pre>
+
+  <script>
+    async function enviar() {
+      const texto = document.getElementById("mensaje").value;
+      const respuestaDiv = document.getElementById("respuesta");
+
+      const res = await fetch("https://miniature-orbit-g9gw5wpx7992pwrw-5000.app.github.dev/mensaje", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ texto })
+      });
+
+      const data = await res.json();
+      respuestaDiv.textContent = data.respuesta || "Sin respuesta";
+    }
+  </script>
+</body>
+</html>
