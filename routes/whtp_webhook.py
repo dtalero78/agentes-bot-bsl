@@ -122,12 +122,16 @@ def recibir_mensaje():
         return jsonify(status="bot inactivo"), 200
 
     # 4) flujo imagen
-    if tipo=="image":
+    if tipo == "image":
         img_id = msg["image"]["id"]
         img_data = descargar_imagen_whatsapp(img_id)
         if not img_data:
             send_whatsapp(user, "No pude descargar la imagen, inténtalo de nuevo.")
             return jsonify(status="error"),200
+
+        # 🔔 Mensaje inmediato antes de procesar imagen
+        send_whatsapp(user, "🔎... un momento por favor")
+        time.sleep(0.3)  # Pequeña pausa para asegurar orden, opcional
 
         # subo a imgbb
         try:
@@ -140,8 +144,6 @@ def recibir_mensaje():
         doc_type, transcript = ocr_y_clasifica(url)
 
         if doc_type=="examen_medico":
-            send_whatsapp(user, "🔎... un momento por favor")  # 👈 AÑADIR AQUÍ
-            # le muestro transcript + lista de exámenes
             send_whatsapp(user, f"Texto detectado:\n{transcript}")
             # delego al agente para respuesta de exámenes
             resp, thread = ejecutar_agente(
@@ -182,7 +184,7 @@ def recibir_mensaje():
     pending = imagenes_pendientes.get(user)
     if pending and pending.get("url"):
         if texto.isdigit():
-            send_whatsapp(user, "🔎 ... un momento por favor")
+            send_whatsapp(user, "🔎... un momento por favor")
             url = pending["url"]
             # tomo thread si existe
             thread_id = estado.get("threadId")
@@ -200,7 +202,7 @@ def recibir_mensaje():
             return jsonify(status="esperando_doc"),200
 
     # 6) caso texto normal → delegado al agente
-    send_whatsapp(user, "🔎... un momento por favor")  # 👈 AÑADIR AQUÍ
+    send_whatsapp(user, "🔎... un momento por favor")
     resp, thread = ejecutar_agente(texto, thread_id=estado.get("threadId"))
     send_whatsapp(user, resp)
     requests.post("https://www.bsl.com.co/_functions/guardarConversacion",
