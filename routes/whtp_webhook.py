@@ -140,6 +140,7 @@ def recibir_mensaje():
         doc_type, transcript = ocr_y_clasifica(url)
 
         if doc_type=="examen_medico":
+            send_whatsapp(user, "🔎... un momento por favor")  # 👈 AÑADIR AQUÍ
             # le muestro transcript + lista de exámenes
             send_whatsapp(user, f"Texto detectado:\n{transcript}")
             # delego al agente para respuesta de exámenes
@@ -181,6 +182,7 @@ def recibir_mensaje():
     pending = imagenes_pendientes.get(user)
     if pending and pending.get("url"):
         if texto.isdigit():
+            send_whatsapp(user, "🔎 ... un momento por favor")
             url = pending["url"]
             # tomo thread si existe
             thread_id = estado.get("threadId")
@@ -198,6 +200,7 @@ def recibir_mensaje():
             return jsonify(status="esperando_doc"),200
 
     # 6) caso texto normal → delegado al agente
+    send_whatsapp(user, "🔎... un momento por favor")  # 👈 AÑADIR AQUÍ
     resp, thread = ejecutar_agente(texto, thread_id=estado.get("threadId"))
     send_whatsapp(user, resp)
     requests.post("https://www.bsl.com.co/_functions/guardarConversacion",
