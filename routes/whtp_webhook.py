@@ -180,7 +180,6 @@ def recibir_mensaje():
             return jsonify(status="esperando_doc"),200
 
     # 6) caso texto normal → delegado al agente
-    send_whatsapp(user, "🔎... un momento por favor")
     resp, thread = ejecutar_agente(texto, thread_id=estado.get("threadId"))
     send_whatsapp(user, resp)
     requests.post("https://www.bsl.com.co/_functions/guardarConversacion",
