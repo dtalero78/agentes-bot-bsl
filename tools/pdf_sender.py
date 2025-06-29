@@ -8,7 +8,7 @@ def marcar_pagado(user_id):
     try:
         resp = requests.post("https://www.bsl.com.co/_functions/marcarPagado", json={
             "userId": user_id,
-            "observaciones": "PAGADO"
+            "observaciones": "Pagado"
         })
         print("✅ Marcado como pagado:", resp.status_code)
     except Exception as e:

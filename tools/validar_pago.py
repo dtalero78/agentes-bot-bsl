@@ -2,7 +2,6 @@ import requests
 import os
 import openai
 from tools.pdf_sender import generar_pdf, send_pdf
-from tools.historial import obtener_historial
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 WHAPI_KEY = os.getenv("WHAPI_TOKEN")
@@ -94,23 +93,6 @@ def run(imagen_url, numeroId=None, whatsapp_id=None, thread_id=None):
                 pdf_url = generar_pdf(numeroId)
                 send_pdf(whatsapp_id, pdf_url)
 
-                # >>>> NUEVO: Enviar historial si hay thread_id
-                print(f"🔍 Intentando enviar historial con thread_id: {thread_id}")
-                if thread_id:
-                    historial_texto = obtener_historial(thread_id)
-                    print("📝 Historial recuperado:", historial_texto)
-                    if historial_texto and "No se pudo recuperar el historial" not in historial_texto:
-                        # WhatsApp tiene límites, puedes recortar si es largo
-                        MAX_LEN = 1500
-                        historial_corto = historial_texto[:MAX_LEN]
-                        send_text_message(whatsapp_id, f"🗒️ Historial de conversación:\n{historial_corto}")
-                        print("✅ Historial enviado a WhatsApp.")
-                    else:
-                        print("⚠️ Historial vacío o no recuperado.")
-                else:
-                    print("⚠️ thread_id no proporcionado, no se enviará historial.")
-
-                return "📄 Aquí tienes tu certificado en PDF. ¡Gracias por enviar tu comprobante!"
             except Exception as e:
                 print("❌ Error generando/enviando PDF:", e)
                 return f"El pago se registró pero hubo un error generando el certificado: {str(e)}"
