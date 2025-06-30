@@ -151,6 +151,7 @@ def recibir_mensaje():
             return jsonify(status="bot reactivado"), 200
         return jsonify(status="control procesado"), 200
 
+    # Guarda mensaje en Wix
     requests.post("https://www.bsl.com.co/_functions/guardarConversacion",
                   json={"userId": user, "nombre": msg.get("from_name",""),
                         "mensajes":[{"from":"usuario","mensaje": texto or "📷 Imagen"}]})
@@ -160,7 +161,7 @@ def recibir_mensaje():
         print("El bot está en estado detenido para este usuario.")
         return jsonify(status="bot inactivo"), 200
 
-    # --- NUEVO: IMÁGEN ASÍNCRONA ---
+    # FLUJO ASÍNCRONO PARA IMÁGENES
     if tipo == "image":
         img_id = msg["image"]["id"]
         print(f"Intentando descargar imagen de WhatsApp con id {img_id}")
@@ -175,7 +176,7 @@ def recibir_mensaje():
         threading.Thread(target=procesar_imagen_en_background, args=(user, img_data, estado)).start()
         return jsonify(status="procesando_en_background"), 200
 
-    # 5) flujo número de doc tras comprobante
+    # FLUJO: número de doc tras comprobante
     pending = imagenes_pendientes.get(user)
     if pending and pending.get("url"):
         if texto.isdigit():
@@ -186,14 +187,14 @@ def recibir_mensaje():
             send_whatsapp(user, resultado)
             requests.post("https://www.bsl.com.co/_functions/guardarConversacion",
                           json={"userId":user,"nombre":"sistema","mensajes":[{"from":"sistema","mensaje":resultado}],"threadId":thread_id})
-            imagenes_pendientes.pop(user,None)
+            imagenes_pendientes.pop(user, None)
             return jsonify(status="pdf_enviado"),200
         else:
             err = "❗️ Envía solo tu número de documento (solo dígitos)."
             send_whatsapp(user, err)
             return jsonify(status="esperando_doc"),200
 
-    # 6) caso texto normal → delegado al agente
+    # FLUJO TEXTO NORMAL → agente
     send_whatsapp(user, "🔎... un momento por favor")
     resp, thread = ejecutar_agente(texto, thread_id=estado.get("threadId"))
     send_whatsapp(user, resp)
