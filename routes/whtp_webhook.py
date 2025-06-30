@@ -200,7 +200,6 @@ def recibir_mensaje():
             return jsonify(status="esperando_doc"),200
 
     # FLUJO TEXTO NORMAL → agente
-    send_whatsapp(user, "🔎... un momento por favor")
     resp, thread = ejecutar_agente(texto, thread_id=estado.get("threadId"))
     if not resp:
         resp = "⚠️ No se pudo procesar tu solicitud, intenta de nuevo."
