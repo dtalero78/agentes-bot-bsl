@@ -22,9 +22,11 @@ imagenes_pendientes = {}
 def descargar_imagen_whatsapp(image_id, intentos=3, espera=2):
     media_url = f"https://gate.whapi.cloud/media/{image_id}"
     for i in range(intentos):
+        print(f"Intento {i+1} de descarga imagen: {media_url}")
         resp = requests.get(media_url, headers={"Authorization": f"Bearer {WHAPI_TOKEN}"})
         print(f"Intento {i+1}: status={resp.status_code}, len={len(resp.content)}")
         if resp.status_code == 200 and len(resp.content) > 1000:
+            print("✅ Imagen descargada correctamente.")
             return resp.content
         print("Contenido devuelto:", resp.content[:100])
         time.sleep(espera)
@@ -65,21 +67,24 @@ def ocr_y_clasifica(imagen_url: str):
     return "otro", texto
 
 def send_whatsapp(to, body):
+    print(f"Enviando mensaje a {to}: {body[:100]}")
     requests.post(WEBHOOK_URL,
         headers={"Authorization": f"Bearer {WHAPI_TOKEN}", "Content-Type": "application/json"},
         json={"to": to, "body": body}
     )
 
 def procesar_imagen_en_background(user, img_data, estado):
-    # subo a imgbb
     try:
+        print("🔄 Subiendo imagen a imgbb...")
         url = upload_image_to_imgbb(img_data)
+        print(f"✅ Imagen subida a imgbb: {url}")
     except Exception as e:
+        print("❌ Error subiendo imagen:", e)
         send_whatsapp(user, "Error subiendo la imagen, inténtalo de nuevo.")
         return
 
-    # clasifico
     doc_type, transcript = ocr_y_clasifica(url)
+    print(f"Tipo de doc detectado: {doc_type}")
 
     if doc_type == "examen_medico":
         send_whatsapp(user, f"Texto detectado:\n{transcript}")
@@ -116,11 +121,13 @@ def procesar_imagen_en_background(user, img_data, estado):
 def recibir_mensaje():
     data = request.get_json()
     if data.get("event", {}).get("type") != "messages":
+        print("Evento no es tipo mensaje")
         return jsonify(status="no procesado"), 200
 
     msg = data["messages"][0]
     chat_id = msg.get("chat_id")
     if not chat_id:
+        print("Error: chat_id faltante")
         return jsonify(error="chat_id faltante"), 400
     user = chat_id.split("@")[0]
     from_me = msg.get("from_me", False)
@@ -128,9 +135,12 @@ def recibir_mensaje():
     tipo = msg.get("type")
     texto = msg.get("text", {}).get("body", "") or ""
 
+    print(f"Recibí mensaje tipo {tipo} de usuario {user}")
+
     # STOP / reactivar
     txt = texto.strip().lower()
     if from_me and sender == BOT_NUMBER:
+        print("Mensaje desde el propio bot, controlando estado")
         if txt.startswith("...transfiriendo con asesor"):
             requests.post("https://www.bsl.com.co/_functions/actualizarObservaciones",
                           json={"userId": user, "observaciones": "stop"})
@@ -141,20 +151,21 @@ def recibir_mensaje():
             return jsonify(status="bot reactivado"), 200
         return jsonify(status="control procesado"), 200
 
-    # guarda mensaje en Wix
     requests.post("https://www.bsl.com.co/_functions/guardarConversacion",
-                  json={"userId": user, "nombre": msg.get("from_name",""), 
+                  json={"userId": user, "nombre": msg.get("from_name",""),
                         "mensajes":[{"from":"usuario","mensaje": texto or "📷 Imagen"}]})
 
-    # chequea estado
     estado = requests.get(f"https://www.bsl.com.co/_functions/obtenerConversacion?userId={user}").json() or {}
     if estado.get("stopBot") or estado.get("observaciones")=="stop":
+        print("El bot está en estado detenido para este usuario.")
         return jsonify(status="bot inactivo"), 200
 
     # --- NUEVO: IMÁGEN ASÍNCRONA ---
     if tipo == "image":
         img_id = msg["image"]["id"]
+        print(f"Intentando descargar imagen de WhatsApp con id {img_id}")
         img_data = descargar_imagen_whatsapp(img_id)
+        print(f"Resultado de descarga: {'OK' if img_data else 'FALLÓ'}")
         if not img_data:
             send_whatsapp(user, "No pude descargar la imagen, inténtalo de nuevo.")
             return jsonify(status="error"),200
@@ -183,6 +194,7 @@ def recibir_mensaje():
             return jsonify(status="esperando_doc"),200
 
     # 6) caso texto normal → delegado al agente
+    send_whatsapp(user, "🔎... un momento por favor")
     resp, thread = ejecutar_agente(texto, thread_id=estado.get("threadId"))
     send_whatsapp(user, resp)
     requests.post("https://www.bsl.com.co/_functions/guardarConversacion",
