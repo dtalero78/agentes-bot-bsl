@@ -23,9 +23,12 @@ def descargar_imagen_whatsapp(image_id, intentos=3, espera=2):
     media_url = f"https://gate.whapi.cloud/media/{image_id}"
     for i in range(intentos):
         resp = requests.get(media_url, headers={"Authorization": f"Bearer {WHAPI_TOKEN}"})
+        print(f"Intento {i+1}: status={resp.status_code}, len={len(resp.content)}")
         if resp.status_code == 200 and len(resp.content) > 1000:
             return resp.content
+        print("Contenido devuelto:", resp.content[:100])
         time.sleep(espera)
+    print("❌ No se pudo descargar imagen. Último status:", resp.status_code)
     return None
 
 def ocr_y_clasifica(imagen_url: str):
