@@ -7,6 +7,8 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 WHAPI_KEY = os.getenv("WHAPI_TOKEN")
 
 def send_text_message(to, body):
+    if not body:
+        body = "⚠️ No se pudo obtener respuesta para este mensaje. Intenta de nuevo."
     resp = requests.post(
         "https://gate.whapi.cloud/messages/text",
         headers={
@@ -22,13 +24,13 @@ def send_text_message(to, body):
 
 def run(imagen_url, numeroId=None, whatsapp_id=None, thread_id=None):
     print(f"🪝 thread_id recibido en validar_pago.run: {thread_id!r}")
+
     # Paso 1: analizar si la imagen es un comprobante de pago real
     prompt_analisis = (
         "Observa la imagen adjunta de un comprobante bancario.\n"
         "Responde solo 'sí' si es un comprobante real de pago, o 'no' si NO lo es. "
         "No expliques nada, responde solo sí o no."
     )
-
     try:
         response = openai.chat.completions.create(
             model="gpt-4o",
@@ -47,7 +49,6 @@ def run(imagen_url, numeroId=None, whatsapp_id=None, thread_id=None):
         return "Ocurrió un error analizando la imagen. Intenta de nuevo."
 
     if numeroId is None or whatsapp_id is None:
-        # Solo validar si la imagen es comprobante. Si sí, pide documento.
         if "sí" in decision or "si" in decision:
             return "✅ El comprobante parece válido. Por favor, dime tu número de documento para registrarlo."
         else:
@@ -79,20 +80,24 @@ def run(imagen_url, numeroId=None, whatsapp_id=None, thread_id=None):
         return "Ocurrió un error extrayendo el valor del comprobante. Intenta con otra imagen."
 
     try:
-        valor_int = int(valor)
+        valor_int = int(valor) if valor else 0
         if valor_int >= 4600:
             # Marcar como pagado en Wix
-            res = requests.post("https://www.bsl.com.co/_functions/marcarPagado", json={
-                "userId": numeroId,
-                "observaciones": "Pagado"
-            })
-            print(f"✅ Marcado como pagado: {res.status_code}")
+            try:
+                res = requests.post("https://www.bsl.com.co/_functions/marcarPagado", json={
+                    "userId": numeroId,
+                    "observaciones": "Pagado"
+                })
+                print(f"✅ Marcado como pagado: {res.status_code}")
+            except Exception as e:
+                print("❌ Error marcando como pagado en Wix:", e)
+                return "El pago parece válido pero no se pudo marcar como pagado en la base de datos. Contacta soporte."
 
             # Generar y enviar PDF solo si marcó exitosamente como pagado
             try:
                 pdf_url = generar_pdf(numeroId)
                 send_pdf(whatsapp_id, pdf_url)
-
+                return "📄 Aquí tienes tu certificado en PDF. ¡Gracias por enviar tu comprobante!"
             except Exception as e:
                 print("❌ Error generando/enviando PDF:", e)
                 return f"El pago se registró pero hubo un error generando el certificado: {str(e)}"
@@ -102,3 +107,6 @@ def run(imagen_url, numeroId=None, whatsapp_id=None, thread_id=None):
     except Exception as e:
         print("❌ Error extrayendo el valor como número:", e)
         return "No pude identificar claramente el valor en el comprobante. Intenta con una imagen más clara."
+
+    # Si todo falla por lógica, siempre retorna un mensaje de error genérico:
+    return "No se pudo procesar tu comprobante, intenta de nuevo."

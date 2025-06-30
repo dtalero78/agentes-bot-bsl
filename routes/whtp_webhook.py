@@ -67,6 +67,8 @@ def ocr_y_clasifica(imagen_url: str):
     return "otro", texto
 
 def send_whatsapp(to, body):
+    if not body:
+        body = "⚠️ No se pudo obtener respuesta para este mensaje. Intenta de nuevo."
     print(f"Enviando mensaje a {to}: {body[:100]}")
     requests.post(WEBHOOK_URL,
         headers={"Authorization": f"Bearer {WHAPI_TOKEN}", "Content-Type": "application/json"},
@@ -184,6 +186,9 @@ def recibir_mensaje():
             url = pending["url"]
             thread_id = estado.get("threadId")
             resultado = validar_pago.run(imagen_url=url, numeroId=texto, whatsapp_id=user, thread_id=thread_id)
+            # PROTEGE por si validar_pago retorna None
+            if not resultado:
+                resultado = "⚠️ No se pudo validar el comprobante, intenta de nuevo."
             send_whatsapp(user, resultado)
             requests.post("https://www.bsl.com.co/_functions/guardarConversacion",
                           json={"userId":user,"nombre":"sistema","mensajes":[{"from":"sistema","mensaje":resultado}],"threadId":thread_id})
@@ -197,6 +202,8 @@ def recibir_mensaje():
     # FLUJO TEXTO NORMAL → agente
     send_whatsapp(user, "🔎... un momento por favor")
     resp, thread = ejecutar_agente(texto, thread_id=estado.get("threadId"))
+    if not resp:
+        resp = "⚠️ No se pudo procesar tu solicitud, intenta de nuevo."
     send_whatsapp(user, resp)
     requests.post("https://www.bsl.com.co/_functions/guardarConversacion",
                   json={"userId":user,"nombre":"sistema","mensajes":[{"from":"sistema","mensaje":resp}],"threadId":thread})
