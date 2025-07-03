@@ -337,3 +337,23 @@ def recibir_mensaje():
         json={"userId": user, "ultimoMensajeSistema": resp}
     )
     return jsonify(status="ok"), 200
+
+@webhook_bp.route("/reenviar_a_openai", methods=["POST"])
+def api_reenviar_a_openai():
+    """
+    Recibe mensajes desde Wix (o cualquier fuente externa) y los reenvía al thread de OpenAI.
+    Espera un JSON con: { "role": ..., "mensaje": ..., "thread_id": ... }
+    """
+    data = request.get_json()
+    role = data.get("role")           # Puede ser "usuario", "sistema", "admin", "wix", etc.
+    mensaje = data.get("mensaje")
+    thread_id = data.get("thread_id")
+    if not role or not mensaje or not thread_id:
+        return jsonify({"success": False, "error": "Faltan datos obligatorios"}), 400
+    try:
+        # Puedes aceptar cualquier role (wix, admin, etc)
+        reenviar_a_openai(role, mensaje, thread_id)
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
