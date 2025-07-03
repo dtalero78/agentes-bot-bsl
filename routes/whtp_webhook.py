@@ -76,6 +76,34 @@ def send_whatsapp(to, body):
         json={"to": to, "body": body}
     )
 
+# ------------ NUEVA FUNCIÓN PARA REENVIAR A OPENAI -------------
+def reenviar_a_openai(role, mensaje, thread_id):
+    """
+    role: "usuario", "sistema" o "admin"
+    mensaje: el texto a enviar
+    thread_id: thread de OpenAI
+    """
+    if not thread_id or not mensaje:
+        return
+    try:
+        openai_role = {
+            "usuario": "user",
+            "sistema": "assistant",
+            "admin": "assistant"  # O "system" si lo prefieres
+        }.get(role, "user")
+        # Si quieres distinguir admin, puedes agregar un tag al mensaje
+        if role == "admin":
+            mensaje = f"[ADMIN]: {mensaje}"
+        openai.beta.threads.messages.create(
+            thread_id=thread_id,
+            role=openai_role,
+            content=mensaje
+        )
+    except Exception as e:
+        print(f"❌ Error reenviando mensaje a OpenAI: {e}")
+
+# ------------ FIN DE NUEVA FUNCIÓN -------------
+
 def procesar_imagen_en_background(user, img_data, estado):
     try:
         print("🔄 Subiendo imagen a imgbb...")
@@ -105,6 +133,9 @@ def procesar_imagen_en_background(user, img_data, estado):
                 "threadId": thread
             }
         )
+        # ------ reenviar mensaje a OpenAI ------
+        reenviar_a_openai("sistema", resp, thread)
+        # ---------------------------------------
         requests.post(
             "https://www.bsl.com.co/_functions/actualizarEstado",
             json={"userId": user, "ultimoMensajeSistema": resp}
@@ -124,6 +155,9 @@ def procesar_imagen_en_background(user, img_data, estado):
                 "mensajes": [{"from": "sistema", "mensaje": resp}]
             }
         )
+        # ------ reenviar mensaje a OpenAI ------
+        reenviar_a_openai("sistema", resp, estado.get("threadId"))
+        # ---------------------------------------
         requests.post(
             "https://www.bsl.com.co/_functions/actualizarEstado",
             json={"userId": user, "ultimoMensajeSistema": resp}
@@ -142,6 +176,9 @@ def procesar_imagen_en_background(user, img_data, estado):
                 "mensajes": [{"from": "sistema", "mensaje": msg_pide}]
             }
         )
+        # ------ reenviar mensaje a OpenAI ------
+        reenviar_a_openai("sistema", msg_pide, estado.get("threadId"))
+        # ---------------------------------------
         requests.post(
             "https://www.bsl.com.co/_functions/actualizarEstado",
             json={"userId": user, "ultimoMensajeSistema": msg_pide}
@@ -209,6 +246,9 @@ def recibir_mensaje():
                     "threadId": estado.get("threadId")
                 }
             )
+            # ------ reenviar mensaje a OpenAI ------
+            reenviar_a_openai("admin", texto, estado.get("threadId"))
+            # ---------------------------------------
             return jsonify(status="admin_guardado"), 200
 
         return jsonify(status="ignorado_para_evitar_duplicado"), 200
@@ -222,6 +262,9 @@ def recibir_mensaje():
             "mensajes": [{"from": "usuario", "mensaje": texto or "📷 Imagen"}]
         }
     )
+    # ------ reenviar mensaje a OpenAI ------
+    reenviar_a_openai("usuario", texto or "📷 Imagen", estado.get("threadId"))
+    # ---------------------------------------
 
     if estado.get("stopBot") or estado.get("observaciones") == "stop":
         print("El bot está detenido para este usuario.")
@@ -259,6 +302,9 @@ def recibir_mensaje():
                     "threadId": thread_id
                 }
             )
+            # ------ reenviar mensaje a OpenAI ------
+            reenviar_a_openai("sistema", resultado, thread_id)
+            # ---------------------------------------
             requests.post(
                 "https://www.bsl.com.co/_functions/actualizarEstado",
                 json={"userId": user, "ultimoMensajeSistema": resultado}
@@ -283,6 +329,9 @@ def recibir_mensaje():
             "threadId": thread
         }
     )
+    # ------ reenviar mensaje a OpenAI ------
+    reenviar_a_openai("sistema", resp, thread)
+    # ---------------------------------------
     requests.post(
         "https://www.bsl.com.co/_functions/actualizarEstado",
         json={"userId": user, "ultimoMensajeSistema": resp}
