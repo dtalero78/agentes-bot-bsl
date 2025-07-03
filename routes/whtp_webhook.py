@@ -132,6 +132,7 @@ def recibir_mensaje():
         print("Error: chat_id faltante")
         return jsonify(error="chat_id faltante"), 400
     user = chat_id.split("@")[0]
+    estado = requests.get(f"https://www.bsl.com.co/_functions/obtenerConversacion?userId={user}").json() or {}
     from_me = msg.get("from_me", False)
     sender = msg.get("from")
     tipo = msg.get("type")
