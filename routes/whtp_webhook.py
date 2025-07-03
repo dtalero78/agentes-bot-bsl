@@ -141,17 +141,27 @@ def recibir_mensaje():
 
     # STOP / reactivar
     txt = texto.strip().lower()
+
     if from_me and sender == BOT_NUMBER:
-        print("Mensaje desde el propio bot, controlando estado")
+        print("Mensaje desde el propio bot (admin o sistema)")
+
         if txt.startswith("...transfiriendo con asesor"):
             requests.post("https://www.bsl.com.co/_functions/actualizarObservaciones",
-                          json={"userId": user, "observaciones": "stop"})
+                      json={"userId": user, "observaciones": "stop"})
             return jsonify(status="bot detenido"), 200
+
         if txt.startswith("...te dejo con el bot"):
             requests.post("https://www.bsl.com.co/_functions/actualizarObservaciones",
-                          json={"userId": user, "observaciones": " "})
+                      json={"userId": user, "observaciones": " "})
             return jsonify(status="bot reactivado"), 200
-        return jsonify(status="control procesado"), 200
+
+    # Si no es comando especial, lo consideramos intervención del admin
+        requests.post("https://www.bsl.com.co/_functions/guardarConversacion",
+              json={"userId": user, "nombre": "admin",
+                    "mensajes": [{"from": "admin", "mensaje": texto}],
+                    "threadId": estado.get("threadId")})
+        return jsonify(status="admin_guardado"), 200
+
 
     # Guarda mensaje en Wix
     requests.post("https://www.bsl.com.co/_functions/guardarConversacion",
