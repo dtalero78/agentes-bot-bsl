@@ -148,20 +148,24 @@ def recibir_mensaje():
 
         if txt.startswith("...transfiriendo con asesor"):
             requests.post("https://www.bsl.com.co/_functions/actualizarObservaciones",
-                      json={"userId": user, "observaciones": "stop"})
+                        json={"userId": user, "observaciones": "stop"})
             return jsonify(status="bot detenido"), 200
 
         if txt.startswith("...te dejo con el bot"):
             requests.post("https://www.bsl.com.co/_functions/actualizarObservaciones",
-                      json={"userId": user, "observaciones": " "})
+                        json={"userId": user, "observaciones": " "})
             return jsonify(status="bot reactivado"), 200
 
-    # Si no es comando especial, lo consideramos intervención del admin
-        requests.post("https://www.bsl.com.co/_functions/guardarConversacion",
-              json={"userId": user, "nombre": "admin",
-                    "mensajes": [{"from": "admin", "mensaje": texto}],
-                    "threadId": estado.get("threadId")})
-        return jsonify(status="admin_guardado"), 200
+        # Si el texto no es comando ni es un mensaje duplicado del bot
+        if not txt.startswith("...") and texto != estado.get("ultimoMensajeBot"):
+            requests.post("https://www.bsl.com.co/_functions/guardarConversacion",
+                        json={"userId": user, "nombre": "admin",
+                                "mensajes": [{"from": "admin", "mensaje": texto}],
+                                "threadId": estado.get("threadId")})
+            return jsonify(status="admin_guardado"), 200
+
+        return jsonify(status="ignorado_para_evitar_duplicado"), 200
+
 
 
     # Guarda mensaje en Wix
@@ -169,7 +173,6 @@ def recibir_mensaje():
                   json={"userId": user, "nombre": msg.get("from_name",""),
                         "mensajes":[{"from":"usuario","mensaje": texto or "📷 Imagen"}]})
 
-    estado = requests.get(f"https://www.bsl.com.co/_functions/obtenerConversacion?userId={user}").json() or {}
     if estado.get("stopBot") or estado.get("observaciones")=="stop":
         print("El bot está en estado detenido para este usuario.")
         return jsonify(status="bot inactivo"), 200
