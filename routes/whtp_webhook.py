@@ -70,7 +70,8 @@ def send_whatsapp(to, body):
     if not body:
         body = "⚠️ No se pudo obtener respuesta para este mensaje. Intenta de nuevo."
     print(f"Enviando mensaje a {to}: {body[:100]}")
-    requests.post(WEBHOOK_URL,
+    requests.post(
+        WEBHOOK_URL,
         headers={"Authorization": f"Bearer {WHAPI_TOKEN}", "Content-Type": "application/json"},
         json={"to": to, "body": body}
     )
@@ -89,15 +90,26 @@ def procesar_imagen_en_background(user, img_data, estado):
     print(f"Tipo de doc detectado: {doc_type}")
 
     if doc_type == "examen_medico":
-        send_whatsapp(user, f"Texto detectado:\n{transcript}")
         resp, thread = ejecutar_agente(
             texto_usuario="Lista de exámenes detectada, dime la información sobre estos.",
             thread_id=estado.get("threadId"),
             imagen_url=url
         )
         send_whatsapp(user, resp)
-        requests.post("https://www.bsl.com.co/_functions/guardarConversacion",
-            json={"userId": user, "nombre":"sistema","mensajes":[{"from":"sistema","mensaje":resp}],"threadId":thread})
+        # Guardar sistema y actualizar estado
+        requests.post(
+            "https://www.bsl.com.co/_functions/guardarConversacion",
+            json={
+                "userId": user,
+                "nombre": "sistema",
+                "mensajes": [{"from": "sistema", "mensaje": resp}],
+                "threadId": thread
+            }
+        )
+        requests.post(
+            "https://www.bsl.com.co/_functions/actualizarEstado",
+            json={"userId": user, "ultimoMensajeSistema": resp}
+        )
         return
 
     if doc_type == "cita_confirmada":
@@ -105,16 +117,36 @@ def procesar_imagen_en_background(user, img_data, estado):
         fecha = m.group(1) if m else transcript
         resp = f"✅ Tu cita está programada para: {fecha}"
         send_whatsapp(user, resp)
-        requests.post("https://www.bsl.com.co/_functions/guardarConversacion",
-            json={"userId":user,"nombre":"sistema","mensajes":[{"from":"sistema","mensaje":resp}]})
+        requests.post(
+            "https://www.bsl.com.co/_functions/guardarConversacion",
+            json={
+                "userId": user,
+                "nombre": "sistema",
+                "mensajes": [{"from": "sistema", "mensaje": resp}]
+            }
+        )
+        requests.post(
+            "https://www.bsl.com.co/_functions/actualizarEstado",
+            json={"userId": user, "ultimoMensajeSistema": resp}
+        )
         return
 
     if doc_type == "comprobante_pago":
         msg_pide = "Para validar tu pago, por favor envía tu número de documento (solo dígitos)."
         send_whatsapp(user, msg_pide)
         imagenes_pendientes[user] = {"url": url}
-        requests.post("https://www.bsl.com.co/_functions/guardarConversacion",
-            json={"userId":user,"nombre":"sistema","mensajes":[{"from":"sistema","mensaje":msg_pide}]})
+        requests.post(
+            "https://www.bsl.com.co/_functions/guardarConversacion",
+            json={
+                "userId": user,
+                "nombre": "sistema",
+                "mensajes": [{"from": "sistema", "mensaje": msg_pide}]
+            }
+        )
+        requests.post(
+            "https://www.bsl.com.co/_functions/actualizarEstado",
+            json={"userId": user, "ultimoMensajeSistema": msg_pide}
+        )
         return
 
     send_whatsapp(user, "No reconozco el contenido de esa imagen. ¿Puedes enviarme el documento correcto?")
@@ -131,68 +163,85 @@ def recibir_mensaje():
     if not chat_id:
         print("Error: chat_id faltante")
         return jsonify(error="chat_id faltante"), 400
+
     user = chat_id.split("@")[0]
-    estado = requests.get(f"https://www.bsl.com.co/_functions/obtenerConversacion?userId={user}").json() or {}
+    # Obtener estado, que ahora incluye ultimoMensajeSistema
+    estado = requests.get(
+        f"https://www.bsl.com.co/_functions/obtenerConversacion?userId={user}"
+    ).json() or {}
+
     from_me = msg.get("from_me", False)
     sender = msg.get("from")
     tipo = msg.get("type")
     texto = msg.get("text", {}).get("body", "") or ""
+    txt = texto.strip().lower()
 
     print(f"Recibí mensaje tipo {tipo} de usuario {user}")
 
-    # STOP / reactivar
-    txt = texto.strip().lower()
-
+    # --- Mensajes desde el propio bot (sistema/admin) ---
     if from_me and sender == BOT_NUMBER:
-        print("Mensaje desde el propio bot (admin o sistema)")
+        # Ignorar el eco del último mensaje de sistema
+        if texto == estado.get("ultimoMensajeSistema"):
+            return jsonify(status="ignorado_sistema"), 200
 
+        # Comandos de stop/reactivar
         if txt.startswith("...transfiriendo con asesor"):
-            requests.post("https://www.bsl.com.co/_functions/actualizarObservaciones",
-                        json={"userId": user, "observaciones": "stop"})
+            requests.post(
+                "https://www.bsl.com.co/_functions/actualizarObservaciones",
+                json={"userId": user, "observaciones": "stop"}
+            )
             return jsonify(status="bot detenido"), 200
 
         if txt.startswith("...te dejo con el bot"):
-            requests.post("https://www.bsl.com.co/_functions/actualizarObservaciones",
-                        json={"userId": user, "observaciones": " "})
+            requests.post(
+                "https://www.bsl.com.co/_functions/actualizarObservaciones",
+                json={"userId": user, "observaciones": " "}
+            )
             return jsonify(status="bot reactivado"), 200
 
-        # Si el texto no es comando ni es un mensaje duplicado del bot
+        # Guardar solo mensajes reales de admin
         if not txt.startswith("...") and texto != estado.get("ultimoMensajeBot"):
-            requests.post("https://www.bsl.com.co/_functions/guardarConversacion",
-                        json={"userId": user, "nombre": "admin",
-                                "mensajes": [{"from": "admin", "mensaje": texto}],
-                                "threadId": estado.get("threadId")})
+            requests.post(
+                "https://www.bsl.com.co/_functions/guardarConversacion",
+                json={
+                    "userId": user,
+                    "nombre": "admin",
+                    "mensajes": [{"from": "admin", "mensaje": texto}],
+                    "threadId": estado.get("threadId")
+                }
+            )
             return jsonify(status="admin_guardado"), 200
 
         return jsonify(status="ignorado_para_evitar_duplicado"), 200
 
+    # --- Mensajes de usuario ---
+    requests.post(
+        "https://www.bsl.com.co/_functions/guardarConversacion",
+        json={
+            "userId": user,
+            "nombre": msg.get("from_name", ""),
+            "mensajes": [{"from": "usuario", "mensaje": texto or "📷 Imagen"}]
+        }
+    )
 
-
-    # Guarda mensaje en Wix
-    requests.post("https://www.bsl.com.co/_functions/guardarConversacion",
-                  json={"userId": user, "nombre": msg.get("from_name",""),
-                        "mensajes":[{"from":"usuario","mensaje": texto or "📷 Imagen"}]})
-
-    if estado.get("stopBot") or estado.get("observaciones")=="stop":
-        print("El bot está en estado detenido para este usuario.")
+    if estado.get("stopBot") or estado.get("observaciones") == "stop":
+        print("El bot está detenido para este usuario.")
         return jsonify(status="bot inactivo"), 200
 
-    # FLUJO ASÍNCRONO PARA IMÁGENES
+    # Flujo para imágenes
     if tipo == "image":
         img_id = msg["image"]["id"]
-        print(f"Intentando descargar imagen de WhatsApp con id {img_id}")
+        print(f"Descargando imagen con id {img_id}")
         img_data = descargar_imagen_whatsapp(img_id)
-        print(f"Resultado de descarga: {'OK' if img_data else 'FALLÓ'}")
         if not img_data:
             send_whatsapp(user, "No pude descargar la imagen, inténtalo de nuevo.")
-            return jsonify(status="error"),200
+            return jsonify(status="error"), 200
 
-        # 🔔 Enviar "un momento..." y procesar en background
         send_whatsapp(user, "🔎... un momento por favor")
         threading.Thread(target=procesar_imagen_en_background, args=(user, img_data, estado)).start()
         return jsonify(status="procesando_en_background"), 200
 
-    # FLUJO: número de doc tras comprobante
+    # Flujo después de comprobante de pago
     pending = imagenes_pendientes.get(user)
     if pending and pending.get("url"):
         if texto.isdigit():
@@ -200,25 +249,43 @@ def recibir_mensaje():
             url = pending["url"]
             thread_id = estado.get("threadId")
             resultado = validar_pago.run(imagen_url=url, numeroId=texto, whatsapp_id=user, thread_id=thread_id)
-            # PROTEGE por si validar_pago retorna None
-            if not resultado:
-                resultado = "⚠️ No se pudo validar el comprobante, intenta de nuevo."
+            resultado = resultado or "⚠️ No se pudo validar el comprobante, intenta de nuevo."
             send_whatsapp(user, resultado)
-            requests.post("https://www.bsl.com.co/_functions/guardarConversacion",
-                          json={"userId":user,"nombre":"sistema","mensajes":[{"from":"sistema","mensaje":resultado}],"threadId":thread_id})
+            requests.post(
+                "https://www.bsl.com.co/_functions/guardarConversacion",
+                json={
+                    "userId": user,
+                    "nombre": "sistema",
+                    "mensajes": [{"from": "sistema", "mensaje": resultado}],
+                    "threadId": thread_id
+                }
+            )
+            requests.post(
+                "https://www.bsl.com.co/_functions/actualizarEstado",
+                json={"userId": user, "ultimoMensajeSistema": resultado}
+            )
             imagenes_pendientes.pop(user, None)
-            return jsonify(status="pdf_enviado"),200
+            return jsonify(status="pdf_enviado"), 200
         else:
             err = "❗️ Envía solo tu número de documento (solo dígitos)."
             send_whatsapp(user, err)
-            return jsonify(status="esperando_doc"),200
+            return jsonify(status="esperando_doc"), 200
 
-    # FLUJO TEXTO NORMAL → agente
+    # Flujo de texto normal → agente
     resp, thread = ejecutar_agente(texto, thread_id=estado.get("threadId"))
-    if not resp:
-        resp = "⚠️ No se pudo procesar tu solicitud, intenta de nuevo."
+    resp = resp or "⚠️ No se pudo procesar tu solicitud, intenta de nuevo."
     send_whatsapp(user, resp)
-    requests.post("https://www.bsl.com.co/_functions/guardarConversacion",
-                  json={"userId":user,"nombre":"sistema","mensajes":[{"from":"sistema","mensaje":resp}],"threadId":thread})
-    return jsonify(status="ok"),200
-    
+    requests.post(
+        "https://www.bsl.com.co/_functions/guardarConversacion",
+        json={
+            "userId": user,
+            "nombre": "sistema",
+            "mensajes": [{"from": "sistema", "mensaje": resp}],
+            "threadId": thread
+        }
+    )
+    requests.post(
+        "https://www.bsl.com.co/_functions/actualizarEstado",
+        json={"userId": user, "ultimoMensajeSistema": resp}
+    )
+    return jsonify(status="ok"), 200
