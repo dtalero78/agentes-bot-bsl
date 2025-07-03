@@ -5,3 +5,5 @@ python-dotenv
 requests
 pytesseract
 Pillow
+pytz
+
