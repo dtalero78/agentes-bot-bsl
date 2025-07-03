@@ -96,7 +96,6 @@ def procesar_imagen_en_background(user, img_data, estado):
             imagen_url=url
         )
         send_whatsapp(user, resp)
-        # Guardar sistema y actualizar estado
         requests.post(
             "https://www.bsl.com.co/_functions/guardarConversacion",
             json={
@@ -165,26 +164,26 @@ def recibir_mensaje():
         return jsonify(error="chat_id faltante"), 400
 
     user = chat_id.split("@")[0]
-    # Obtener estado, que ahora incluye ultimoMensajeSistema
     estado = requests.get(
         f"https://www.bsl.com.co/_functions/obtenerConversacion?userId={user}"
     ).json() or {}
 
     from_me = msg.get("from_me", False)
     sender = msg.get("from")
+    source = msg.get("source", "")      # <— nuevo: origen del mensaje ("api", "web", "mobile", etc.)
     tipo = msg.get("type")
     texto = msg.get("text", {}).get("body", "") or ""
     txt = texto.strip().lower()
 
-    print(f"Recibí mensaje tipo {tipo} de usuario {user}")
+    print(f"Recibí mensaje tipo {tipo} de usuario {user} (from_me={from_me}, source={source})")
 
-    # --- Mensajes desde el propio bot (sistema/admin) ---
+    # --- Mensajes desde el propio bot/admin ---
     if from_me and sender == BOT_NUMBER:
-        # Ignorar el eco del último mensaje de sistema
-        if texto == estado.get("ultimoMensajeSistema"):
-            return jsonify(status="ignorado_sistema"), 200
+        # 1️⃣ Ignorar los ecos de los mensajes de sistema (source "api")
+        if source == "api":
+            return jsonify(status="ignorado_echo_api"), 200
 
-        # Comandos de stop/reactivar
+        # 2️⃣ Comandos de stop/reactivar desde admin
         if txt.startswith("...transfiriendo con asesor"):
             requests.post(
                 "https://www.bsl.com.co/_functions/actualizarObservaciones",
@@ -199,7 +198,7 @@ def recibir_mensaje():
             )
             return jsonify(status="bot reactivado"), 200
 
-        # Guardar solo mensajes reales de admin
+        # 3️⃣ Guardar solo los mensajes manuales de admin (source "web"/"mobile")
         if not txt.startswith("...") and texto != estado.get("ultimoMensajeBot"):
             requests.post(
                 "https://www.bsl.com.co/_functions/guardarConversacion",
@@ -228,7 +227,7 @@ def recibir_mensaje():
         print("El bot está detenido para este usuario.")
         return jsonify(status="bot inactivo"), 200
 
-    # Flujo para imágenes
+    # FLUJO para imágenes
     if tipo == "image":
         img_id = msg["image"]["id"]
         print(f"Descargando imagen con id {img_id}")
@@ -241,7 +240,7 @@ def recibir_mensaje():
         threading.Thread(target=procesar_imagen_en_background, args=(user, img_data, estado)).start()
         return jsonify(status="procesando_en_background"), 200
 
-    # Flujo después de comprobante de pago
+    # FLUJO comprobante de pago
     pending = imagenes_pendientes.get(user)
     if pending and pending.get("url"):
         if texto.isdigit():
@@ -271,7 +270,7 @@ def recibir_mensaje():
             send_whatsapp(user, err)
             return jsonify(status="esperando_doc"), 200
 
-    # Flujo de texto normal → agente
+    # FLUJO texto normal → agente
     resp, thread = ejecutar_agente(texto, thread_id=estado.get("threadId"))
     resp = resp or "⚠️ No se pudo procesar tu solicitud, intenta de nuevo."
     send_whatsapp(user, resp)
