@@ -45,13 +45,12 @@ def send_whatsapp(to, body):
 
 def reenviar_a_openai(role, mensaje, thread_id):
     if not thread_id or not mensaje or not str(mensaje).strip():
-        print(f"⚠️ No se reenvió mensaje vacío a OpenAI. thread_id={thread_id}, mensaje={repr(mensaje)}")
         return
     try:
         openai_role = {
             "usuario": "user",
             "sistema": "assistant",
-            "admin": "assistant",   # O "system" si prefieres
+            "admin": "assistant",
             "wix": "assistant",
             "wix-automatico": "assistant",
         }.get(role, "assistant")
@@ -67,16 +66,12 @@ def reenviar_a_openai(role, mensaje, thread_id):
 
 def procesar_imagen_en_background(user, img_data, estado):
     try:
-        print("🔄 Subiendo imagen a imgbb...")
         url = upload_image_to_imgbb(img_data)
-        print(f"✅ Imagen subida a imgbb: {url}")
     except Exception as e:
-        print("❌ Error subiendo imagen:", e)
         send_whatsapp(user, "Error subiendo la imagen, inténtalo de nuevo.")
         return
 
-    doc_type, transcript = ocr_y_clasifica(url)
-    print(f"Tipo de doc detectado: {doc_type}")
+    doc_type, transcript = tools.validar_pago.ocr_y_clasifica(url)
 
     if doc_type == "examen_medico":
         resp, thread = ejecutar_agente(
@@ -87,14 +82,9 @@ def procesar_imagen_en_background(user, img_data, estado):
         send_whatsapp(user, resp)
         requests.post(
             "https://www.bsl.com.co/_functions/guardarConversacion",
-            json={
-                "userId": user,
-                "nombre": "sistema",
-                "mensajes": [{"from": "sistema", "mensaje": resp}],
-                "threadId": thread
-            }
+            json={"userId": user, "nombre": "sistema", "mensajes": [{"from": "sistema", "mensaje": resp}], "threadId": thread}
         )
-        reenviar_a_openai("sistema", resp, thread)
+        # NO reenviamos aquí a OpenAI, ejecutar_agente ya creó el mensaje
         requests.post(
             "https://www.bsl.com.co/_functions/actualizarEstado",
             json={"userId": user, "ultimoMensajeSistema": resp}
@@ -108,11 +98,7 @@ def procesar_imagen_en_background(user, img_data, estado):
         send_whatsapp(user, resp)
         requests.post(
             "https://www.bsl.com.co/_functions/guardarConversacion",
-            json={
-                "userId": user,
-                "nombre": "sistema",
-                "mensajes": [{"from": "sistema", "mensaje": resp}]
-            }
+            json={"userId": user, "nombre": "sistema", "mensajes": [{"from": "sistema", "mensaje": resp}]}
         )
         reenviar_a_openai("sistema", resp, estado.get("threadId"))
         requests.post(
@@ -127,11 +113,7 @@ def procesar_imagen_en_background(user, img_data, estado):
         imagenes_pendientes[user] = {"url": url}
         requests.post(
             "https://www.bsl.com.co/_functions/guardarConversacion",
-            json={
-                "userId": user,
-                "nombre": "sistema",
-                "mensajes": [{"from": "sistema", "mensaje": msg_pide}]
-            }
+            json={"userId": user, "nombre": "sistema", "mensajes": [{"from": "sistema", "mensaje": msg_pide}]}
         )
         reenviar_a_openai("sistema", msg_pide, estado.get("threadId"))
         requests.post(
@@ -146,30 +128,21 @@ def procesar_imagen_en_background(user, img_data, estado):
 def recibir_mensaje():
     data = request.get_json()
     if data.get("event", {}).get("type") != "messages":
-        print("Evento no es tipo mensaje")
         return jsonify(status="no procesado"), 200
 
     msg = data["messages"][0]
-    chat_id = msg.get("chat_id")
-    if not chat_id:
-        print("Error: chat_id faltante")
-        return jsonify(error="chat_id faltante"), 400
-
-    user = chat_id.split("@")[0]
+    user = msg.get("chat_id").split("@")[0]
     estado = requests.get(
         f"https://www.bsl.com.co/_functions/obtenerConversacion?userId={user}"
     ).json() or {}
-
     from_me = msg.get("from_me", False)
     sender = msg.get("from")
     source = msg.get("source", "")
-    tipo = msg.get("type")
+    tipo  = msg.get("type")
     texto = msg.get("text", {}).get("body", "") or ""
-    txt = texto.strip().lower()
+    txt   = texto.strip().lower()
 
-    print(f"Recibí mensaje tipo {tipo} de usuario {user} (from_me={from_me}, source={source})")
-
-    # --- Mensajes desde el propio bot/admin ---
+    # Mensajes del bot/admin
     if from_me and sender == BOT_NUMBER:
         if source == "api":
             return jsonify(status="ignorado_echo_api"), 200
@@ -188,65 +161,43 @@ def recibir_mensaje():
         if not txt.startswith("...") and texto != estado.get("ultimoMensajeBot"):
             requests.post(
                 "https://www.bsl.com.co/_functions/guardarConversacion",
-                json={
-                    "userId": user,
-                    "nombre": "admin",
-                    "mensajes": [{"from": "admin", "mensaje": texto}],
-                    "threadId": estado.get("threadId")
-                }
+                json={"userId": user, "nombre": "admin", "mensajes": [{"from": "admin", "mensaje": texto}], "threadId": estado.get("threadId")}  
             )
             reenviar_a_openai("admin", texto, estado.get("threadId"))
             return jsonify(status="admin_guardado"), 200
-
         return jsonify(status="ignorado_para_evitar_duplicado"), 200
 
-    # --- Mensajes de usuario ---
+    # Mensajes de usuario
     requests.post(
         "https://www.bsl.com.co/_functions/guardarConversacion",
-        json={
-            "userId": user,
-            "nombre": msg.get("from_name", ""),
-            "mensajes": [{"from": "usuario", "mensaje": texto or "📷 Imagen"}]
-        }
+        json={"userId": user, "nombre": msg.get("from_name", ""), "mensajes": [{"from": "usuario", "mensaje": texto or "📷 Imagen"}]}
     )
-    # *** NO reenvíes aquí a OpenAI ***
-    # reenviar_a_openai("usuario", texto or "📷 Imagen", estado.get("threadId"))
+    # No reenviamos aquí a OpenAI
 
     if estado.get("stopBot") or estado.get("observaciones") == "stop":
-        print("El bot está detenido para este usuario.")
         return jsonify(status="bot inactivo"), 200
 
-    # FLUJO para imágenes
+    # Flujo imágenes
     if tipo == "image":
         img_id = msg["image"]["id"]
-        print(f"Descargando imagen con id {img_id}")
         img_data = descargar_imagen_whatsapp(img_id)
         if not img_data:
             send_whatsapp(user, "No pude descargar la imagen, inténtalo de nuevo.")
             return jsonify(status="error"), 200
-
-        send_whatsapp(user, "🔎... un momento por favor")
         threading.Thread(target=procesar_imagen_en_background, args=(user, img_data, estado)).start()
         return jsonify(status="procesando_en_background"), 200
 
-    # FLUJO comprobante de pago
+    # Flujo comprobante pago
     pending = imagenes_pendientes.get(user)
     if pending and pending.get("url"):
         if texto.isdigit():
-            send_whatsapp(user, "🔎... un momento por favor")
             url = pending["url"]
             thread_id = estado.get("threadId")
-            resultado = validar_pago_run(imagen_url=url, numeroId=texto, whatsapp_id=user, thread_id=thread_id)
-            resultado = resultado or "⚠️ No se pudo validar el comprobante, intenta de nuevo."
+            resultado = validar_pago.run(imagen_url=url, numeroId=texto, whatsapp_id=user, thread_id=thread_id)
             send_whatsapp(user, resultado)
             requests.post(
                 "https://www.bsl.com.co/_functions/guardarConversacion",
-                json={
-                    "userId": user,
-                    "nombre": "sistema",
-                    "mensajes": [{"from": "sistema", "mensaje": resultado}],
-                    "threadId": thread_id
-                }
+                json={"userId": user, "nombre": "sistema", "mensajes": [{"from": "sistema", "mensaje": resultado}], "threadId": thread_id}
             )
             reenviar_a_openai("sistema", resultado, thread_id)
             requests.post(
@@ -256,24 +207,17 @@ def recibir_mensaje():
             imagenes_pendientes.pop(user, None)
             return jsonify(status="pdf_enviado"), 200
         else:
-            err = "❗️ Envía solo tu número de documento (solo dígitos)."
-            send_whatsapp(user, err)
+            send_whatsapp(user, "❗️ Envía solo tu número de documento (solo dígitos).")
             return jsonify(status="esperando_doc"), 200
 
-    # FLUJO texto normal → agente
+    # Flujo texto normal → agente
     resp, thread = ejecutar_agente(texto, thread_id=estado.get("threadId"))
-    resp = resp or "⚠️ No se pudo procesar tu solicitud, intenta de nuevo."
     send_whatsapp(user, resp)
     requests.post(
         "https://www.bsl.com.co/_functions/guardarConversacion",
-        json={
-            "userId": user,
-            "nombre": "sistema",
-            "mensajes": [{"from": "sistema", "mensaje": resp}],
-            "threadId": thread
-        }
+        json={"userId": user, "nombre": "sistema", "mensajes": [{"from": "sistema", "mensaje": resp}], "threadId": thread}
     )
-    reenviar_a_openai("sistema", resp, thread)
+    # NO reenviamos aquí a OpenAI, ejecutar_agente ya creó el mensaje
     requests.post(
         "https://www.bsl.com.co/_functions/actualizarEstado",
         json={"userId": user, "ultimoMensajeSistema": resp}
