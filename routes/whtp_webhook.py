@@ -71,7 +71,7 @@ def procesar_imagen_en_background(user, img_data, estado):
         send_whatsapp(user, "Error subiendo la imagen, inténtalo de nuevo.")
         return
 
-    doc_type, transcript = tools.validar_pago.ocr_y_clasifica(url)
+    doc_type, transcript = validar_pago.ocr_y_clasifica(url)
 
     if doc_type == "examen_medico":
         resp, thread = ejecutar_agente(
