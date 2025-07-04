@@ -57,6 +57,6 @@ def compara_historiales(user_id, thread_id):
 # USO:
 if __name__ == "__main__":
     # Pega aquí el user_id y el thread_id que quieres comparar
-    user_id = "573153369631"
-    thread_id = "thread_lKvBczWt46QJGyOAAtftJAu5"
+    user_id = "573176370656"
+    thread_id = "thread_YHGvGFRbpyXi0jhyBzvpWB30"
     compara_historiales(user_id, thread_id)
