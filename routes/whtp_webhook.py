@@ -7,7 +7,7 @@ import openai
 import threading
 
 from main_agent import ejecutar_agente
-from tools.validar_pago_optimizado import ocr_y_clasifica, run as validar_pago_run
+import tools.validar_pago as validar_pago
 import tools.consultar_cita as consultar_cita
 from tools.pdf_sender import generar_pdf, send_pdf, marcar_pagado
 from utils.upload_to_imgbb import upload_image_to_imgbb
